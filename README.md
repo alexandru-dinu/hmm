@@ -1,2 +1,2 @@
-# hmm
+# HMM
 Hidden Markov Models
