@@ -83,14 +83,17 @@ def get_sequence(grid, length):
 
 
 # Compute the probability that a given sequence comes from a given model
-def forward(grid, observations):
+def forward(grid, observations, pi=None, A=None, B=None):
     N = grid.states_no
     T = len(observations)
     alpha = np.zeros((T, N))
 
-    pi = get_initial_distribution(grid)
-    A = get_transition_probabilities(grid)
-    B = get_emission_probabilities(grid, num_possible_obs=len(COLORS))
+    if pi is None:
+        pi = get_initial_distribution(grid)
+    if A is None:
+        A = get_transition_probabilities(grid)
+    if B is None:
+        B = get_emission_probabilities(grid, num_possible_obs=len(COLORS))
 
     for t in range(T):
         for s in range(N):
@@ -101,6 +104,26 @@ def forward(grid, observations):
 
     p = alpha[-1, :].sum()
     return p, alpha
+
+
+def backward(grid, observations, A=None, B=None):
+    N = grid.states_no
+    T = len(observations)
+    beta = np.zeros((T, N))
+
+    if A is None:
+        A = get_transition_probabilities(grid)
+    if B is None:
+        B = get_emission_probabilities(grid, num_possible_obs=len(COLORS))
+
+    for t in range(T - 1, -1, -1):
+        for i in range(N):
+            if t == T - 1:
+                beta[t, i] = 1
+            else:  # TODO - check
+                beta[t, i] = np.sum(beta[t + 1, :] * A[:, i] * B[:, observations[t + 1]])
+
+    return beta
 
 
 # Decoding
@@ -128,3 +151,94 @@ def viterbi(grid, observations):
         states[t] = np.argmax(delta[t, :] * A[:, states[t + 1]])
 
     return [(s // W, s % W) for s in states], delta
+
+
+# TODO: learning - Baum-Welch
+
+def learn(grid, observations, num_possible_obs, eps):
+    N = grid.states_no
+    T = len(observations)
+    M = num_possible_obs
+
+    # initial distribution
+    pi = np.ones(N) / N
+    # transition probabilities
+    A = np.zeros((N, N))
+    for i in range(N):
+        A[i, :] = np.random.dirichlet(np.ones(N))
+    # emission probabilities
+    B = np.ones((N, M)) / M
+
+    gamma = np.zeros((T, N))
+    xi = np.zeros((T, N, N))
+    denom = np.zeros(T)
+
+    oldP = 0
+    logP = np.inf
+    it = 0
+
+    while it < 20: #abs(logP - oldP) >= eps:
+
+        it += 1
+        print(f"Iter {it}, diff = {abs(logP - oldP)}")
+
+        if logP is not np.inf:
+            oldP = logP
+
+        # E step
+        _, alpha = forward(grid, observations, pi, A, B)
+        beta = backward(grid, observations, A, B)
+
+
+        # get gamma
+        for t in range(T):
+            denom[t] = np.sum(alpha[t, :] * beta[t, :])
+            for i in range(N):
+                gamma[t, i] = alpha[t, i] * beta[t, i] / denom[t]
+
+        # get xi
+        for t in range(T - 1):
+            dt = np.sum(alpha[t, :] * A * B[:, observations[t+1]] * beta[t+1, :])
+            print(dt, "vs", denom[t])
+            for i in range(N):
+                for j in range(N):  # TODO -check Aij Aji
+                    xi[t, i, j] = alpha[t, i] * A[i, j] * B[j, observations[t + 1]] * beta[t + 1, j] / denom[t]
+        # ---
+
+        # M step
+        # update pi
+        pi = gamma[0, :]
+
+        # update A
+        for i in range(N):
+            for j in range(N):
+                A[i, j] = np.sum(xi[:, i, j]) / np.sum(gamma[:, i])
+
+        # update B
+        for i in range(N):
+            for k in range(M):
+                B[i, k] = np.sum((observations == k) * gamma[:, i]) / np.sum(gamma[:, i])
+        # ---
+
+        logP = np.sum(denom)
+
+    print(f"Done! diff = {abs(logP - oldP)}")
+
+    return pi, A, B
+
+
+if __name__ == '__main__':
+    from grid import GRIDS
+
+    grid = GRIDS[0]
+    observations, _ = get_sequence(grid, 50)
+
+    pi, A, B = learn(grid, np.array(observations), num_possible_obs=len(COLORS), eps=1e-5)
+
+    pi_true = get_initial_distribution(grid)
+    A_true = get_transition_probabilities(grid)
+    B_true = get_emission_probabilities(grid, num_possible_obs=len(COLORS))
+
+    assert np.allclose(pi, pi_true)
+    assert np.allclose(A, A_true)
+    assert np.allclose(B, B_true)
