@@ -43,7 +43,7 @@ def get_transition_probabilities(grid):
 
 
 # Emission probability matrix
-def get_emission_probabilities(grid, num_possible_obs):
+def get_emission_probabilities(grid, num_possible_obs=len(COLORS)):
     H, W = grid.shape
     N = grid.states_no
     B = np.zeros((H * W, num_possible_obs))
@@ -94,9 +94,10 @@ def forward(grid, observations, pi=None, A=None, B=None):
     if B is None:
         B = get_emission_probabilities(grid, num_possible_obs=len(COLORS))
 
-    # t == 0
+    # alpha_0i = pi_i * B_i0
     alpha[0, :] = pi * B[:, observations[0]]
 
+    # alpha_ti = sum_j(alpha_t-1,j * Aji) * B_it
     for t in range(1, T):
         alpha[t, :] = np.sum(alpha[t - 1, :] * np.transpose(A), axis=1) * B[:, observations[t]]
 
@@ -114,13 +115,12 @@ def backward(grid, observations, A=None, B=None):
     if B is None:
         B = get_emission_probabilities(grid, num_possible_obs=len(COLORS))
 
-    # t == T - 1
-    beta[T-1, :] = 1
+    # beta_T-1,i = 1
+    beta[T - 1, :] = 1
 
+    # beta_ti = sum_j(beta_t+1,j * A_ij * B_j,t+1)
     for t in range(T - 2, -1, -1):
-        beta[t, :] = np.sum(beta[t + 1, :] * np.transpose(A) * B[:, observations[t + 1]], axis=1)
-
-     # TODO - check
+        beta[t, :] = np.sum(beta[t + 1, :] * A * B[:, observations[t + 1]], axis=1)
 
     return beta
 
@@ -150,82 +150,65 @@ def viterbi(grid, observations):
     return [(s // W, s % W) for s in states], delta
 
 
-# TODO: learning - Baum-Welch
-
-def learn(grid, observations, num_possible_obs, eps):
+def baum_welch(grid, observations, num_possible_obs, num_it):
     N = grid.states_no
     T = len(observations)
     M = num_possible_obs
 
     # initial distribution
     pi = np.ones(N) / N
-    # transition probabilities
+
+    # initial transition probabilities
     A = np.zeros((N, N))
     for i in range(N):
         A[i, :] = np.random.dirichlet(np.ones(N))
-    # emission probabilities
+    # A = get_transition_probabilities(grid)
+
+    # initial emission probabilities
     B = np.ones((N, M)) / M
 
-    gamma = np.zeros((T, N))
-    xi = np.zeros((T, N, N))
-    denom = np.zeros(T)
+    xi = np.zeros((T - 1, N, N))
 
-    oldP = 0
-    logP = np.inf
-    it = 0
+    for it in range(1, num_it + 1):
+        print(f"Iter {it}")
 
-    while it < 100: #abs(logP - oldP) >= eps:
-
-        print("\n\n", pi,"\n",get_initial_distribution(grid), "\n")
-        import time
-        time.sleep(0.2)
-
-        it += 1
-        print(f"Iter {it}, diff = {abs(logP - oldP)}")
-
-        if logP is not np.inf:
-            oldP = logP
+        # print("\n\n", A[1], "\n", get_transition_probabilities(grid)[1], "\n")
+        # import time
+        # time.sleep(0.1)
 
         # E step
-        _, alpha = forward(grid, observations, pi, A, B)
+
+        # p_obs = p(obs | theta)
+        p_obs, alpha = forward(grid, observations, pi, A, B)
         beta = backward(grid, observations, A, B)
 
+        # p_obs gets too small!! e.g. 7e-166
 
-        # get gamma
-        for t in range(T):
-            denom[t] = np.sum(alpha[t, :] * beta[t, :])
-            for i in range(N):
-                gamma[t, i] = alpha[t, i] * beta[t, i] / denom[t]
+        # gamma_ti = (alpha_ti * beta_ti) / p(obs | theta) (size = T x N)
+        gamma = alpha * beta / p_obs
 
-        # get xi
+        # xi_tij = (alpha_ti * A_ij * beta_t+1,j * B_j,t+1) / p(obs | theta) (size = T-1 x N x N)
         for t in range(T - 1):
-
-            assert np.allclose(denom[t], np.sum(alpha[t, :] * np.transpose(A) * B[:, observations[t+1]] * beta[t+1, :]))
-
-            for i in range(N):
-                for j in range(N):  # TODO -check Aij Aji
-                    xi[t, i, j] = alpha[t, i] * A[j, i] * B[j, observations[t + 1]] * beta[t + 1, j] / denom[t]
+            xi[t, :, :] = np.tile(alpha[t, :], (N, 1)).transpose() * A * B[:, observations[t + 1]] * beta[t + 1, :]
+        xi /= p_obs
         # ---
 
         # M step
         # update pi
         pi = gamma[0, :]
 
-        # update A
+        # update: A <- sum_t(xi_tij) / sum_t(gamma_ti) | all t's but last one
         for i in range(N):
             for j in range(N):
-                A[j, i] = np.sum(xi[:, i, j]) / np.sum(gamma[:, i])
+                A[i, j] = np.sum(xi[:, i, j]) / np.sum(gamma[:-1, i])
 
-        # update B
+        # update: B <- sum_t(1(y_t==k) * gamma_ti) / sum_t(gamma_ti)
         for i in range(N):
             for k in range(M):
                 B[i, k] = np.sum((observations == k) * gamma[:, i]) / np.sum(gamma[:, i])
         # ---
 
-        logP = np.sum(denom)
-
-    print(f"Done! diff = {abs(logP - oldP)}")
-
+    print("Done!")
     return pi, A, B
 
 
@@ -234,14 +217,10 @@ if __name__ == '__main__':
     from grid import GRIDS
 
     grid = GRIDS[0]
-    observations, _ = get_sequence(grid, 100)
+    observations, _ = get_sequence(grid, 500)
 
-    pi, A, B = learn(grid, np.array(observations), num_possible_obs=len(COLORS), eps=1e-5)
+    pi, A, B = baum_welch(grid, np.array(observations), num_possible_obs=len(COLORS), num_it=1000)
 
     pi_true = get_initial_distribution(grid)
     A_true = get_transition_probabilities(grid)
     B_true = get_emission_probabilities(grid, num_possible_obs=len(COLORS))
-
-    assert np.allclose(pi, pi_true)
-    assert np.allclose(A, A_true)
-    assert np.allclose(B, B_true)
