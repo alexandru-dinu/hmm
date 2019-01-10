@@ -14,7 +14,6 @@ from utils import sample
 
 
 # ================== Extracting the HMM parameters ==================
-
 # Given a `Grid` object, build the three matrices of parameters of HMM := <pi, A, B>
 
 # Uniform distribution
@@ -95,12 +94,11 @@ def forward(grid, observations, pi=None, A=None, B=None):
     if B is None:
         B = get_emission_probabilities(grid, num_possible_obs=len(COLORS))
 
-    for t in range(T):
-        for s in range(N):
-            if t == 0:
-                alpha[t, s] = pi[s] * B[s, observations[0]]
-            else:
-                alpha[t, s] = np.sum(alpha[t - 1, :] * A[:, s]) * B[s, observations[t]]
+    # t == 0
+    alpha[0, :] = pi * B[:, observations[0]]
+
+    for t in range(1, T):
+        alpha[t, :] = np.sum(alpha[t - 1, :] * np.transpose(A), axis=1) * B[:, observations[t]]
 
     p = alpha[-1, :].sum()
     return p, alpha
@@ -116,18 +114,18 @@ def backward(grid, observations, A=None, B=None):
     if B is None:
         B = get_emission_probabilities(grid, num_possible_obs=len(COLORS))
 
-    for t in range(T - 1, -1, -1):
-        for i in range(N):
-            if t == T - 1:
-                beta[t, i] = 1
-            else:  # TODO - check
-                beta[t, i] = np.sum(beta[t + 1, :] * A[:, i] * B[:, observations[t + 1]])
+    # t == T - 1
+    beta[T-1, :] = 1
+
+    for t in range(T - 2, -1, -1):
+        beta[t, :] = np.sum(beta[t + 1, :] * np.transpose(A) * B[:, observations[t + 1]], axis=1)
+
+     # TODO - check
 
     return beta
 
 
-# Decoding
-# Compute the most probable sequence of states that generated the observations
+# Decoding: compute the most probable sequence of states that generated the observations
 def viterbi(grid, observations):
     N = grid.states_no
     H, W = grid.shape
@@ -139,12 +137,11 @@ def viterbi(grid, observations):
     A = get_transition_probabilities(grid)
     B = get_emission_probabilities(grid, num_possible_obs=len(COLORS))
 
-    for t in range(T):
-        for s in range(N):
-            if t == 0:
-                delta[t, s] = pi[s] * B[s, observations[0]]
-            else:
-                delta[t, s] = np.max(delta[t - 1, :] * A[:, s]) * B[s, observations[t]]
+    # t == 0
+    delta[0, :] = pi * B[:, observations[0]]
+
+    for t in range(1, T):
+        delta[t, :] = np.max(delta[t - 1, :] * np.transpose(A), axis=1) * B[:, observations[t]]
 
     states[T - 1] = np.argmax(delta[T - 1, :])
     for t in range(T - 2, -1, -1):
@@ -177,7 +174,11 @@ def learn(grid, observations, num_possible_obs, eps):
     logP = np.inf
     it = 0
 
-    while it < 20: #abs(logP - oldP) >= eps:
+    while it < 100: #abs(logP - oldP) >= eps:
+
+        print("\n\n", pi,"\n",get_initial_distribution(grid), "\n")
+        import time
+        time.sleep(0.2)
 
         it += 1
         print(f"Iter {it}, diff = {abs(logP - oldP)}")
@@ -198,11 +199,12 @@ def learn(grid, observations, num_possible_obs, eps):
 
         # get xi
         for t in range(T - 1):
-            dt = np.sum(alpha[t, :] * A * B[:, observations[t+1]] * beta[t+1, :])
-            print(dt, "vs", denom[t])
+
+            assert np.allclose(denom[t], np.sum(alpha[t, :] * np.transpose(A) * B[:, observations[t+1]] * beta[t+1, :]))
+
             for i in range(N):
                 for j in range(N):  # TODO -check Aij Aji
-                    xi[t, i, j] = alpha[t, i] * A[i, j] * B[j, observations[t + 1]] * beta[t + 1, j] / denom[t]
+                    xi[t, i, j] = alpha[t, i] * A[j, i] * B[j, observations[t + 1]] * beta[t + 1, j] / denom[t]
         # ---
 
         # M step
@@ -212,7 +214,7 @@ def learn(grid, observations, num_possible_obs, eps):
         # update A
         for i in range(N):
             for j in range(N):
-                A[i, j] = np.sum(xi[:, i, j]) / np.sum(gamma[:, i])
+                A[j, i] = np.sum(xi[:, i, j]) / np.sum(gamma[:, i])
 
         # update B
         for i in range(N):
@@ -228,10 +230,11 @@ def learn(grid, observations, num_possible_obs, eps):
 
 
 if __name__ == '__main__':
+    np.set_printoptions(suppress=True)
     from grid import GRIDS
 
     grid = GRIDS[0]
-    observations, _ = get_sequence(grid, 50)
+    observations, _ = get_sequence(grid, 100)
 
     pi, A, B = learn(grid, np.array(observations), num_possible_obs=len(COLORS), eps=1e-5)
 
