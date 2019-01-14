@@ -82,17 +82,17 @@ def get_sequence(grid, length):
 
 
 # Compute the probability that a given sequence comes from a given model
-def forward(grid, observations, pi=None, A=None, B=None):
+def forward(grid, observations, hmm=None):
     N = grid.states_no
     T = len(observations)
     alpha = np.zeros((T, N))
 
-    if pi is None:
+    if hmm is None:
         pi = get_initial_distribution(grid)
-    if A is None:
         A = get_transition_probabilities(grid)
-    if B is None:
         B = get_emission_probabilities(grid, num_possible_obs=len(COLORS))
+    else:
+        pi, A, B = hmm
 
     # alpha_0i = pi_i * B_i0
     alpha[0, :] = pi * B[:, observations[0]]
@@ -105,15 +105,16 @@ def forward(grid, observations, pi=None, A=None, B=None):
     return p, alpha
 
 
-def backward(grid, observations, A=None, B=None):
+def backward(grid, observations, hmm=None):
     N = grid.states_no
     T = len(observations)
     beta = np.zeros((T, N))
 
-    if A is None:
+    if hmm is None:
         A = get_transition_probabilities(grid)
-    if B is None:
         B = get_emission_probabilities(grid, num_possible_obs=len(COLORS))
+    else:
+        _, A, B = hmm
 
     # beta_T-1,i = 1
     beta[T - 1, :] = 1
@@ -126,16 +127,19 @@ def backward(grid, observations, A=None, B=None):
 
 
 # Decoding: compute the most probable sequence of states that generated the observations
-def viterbi(grid, observations):
+def viterbi(grid, observations, hmm=None):
     N = grid.states_no
     H, W = grid.shape
     T = len(observations)
     delta = np.zeros((T, N))
     states = np.zeros(T, dtype=int)
 
-    pi = get_initial_distribution(grid)
-    A = get_transition_probabilities(grid)
-    B = get_emission_probabilities(grid, num_possible_obs=len(COLORS))
+    if hmm is None:
+        pi = get_initial_distribution(grid)
+        A = get_transition_probabilities(grid)
+        B = get_emission_probabilities(grid, num_possible_obs=len(COLORS))
+    else:
+        pi, A, B = hmm
 
     # t == 0
     delta[0, :] = pi * B[:, observations[0]]
@@ -179,8 +183,8 @@ def baum_welch(grid, observations, num_possible_obs, num_it):
         # E step
 
         # p_obs = p(obs | theta)
-        p_obs, alpha = forward(grid, observations, pi, A, B)
-        beta = backward(grid, observations, A, B)
+        p_obs, alpha = forward(grid, observations, hmm=(pi, A, B))
+        beta = backward(grid, observations, hmm=(None, A, B))
 
         # p_obs gets too small!! e.g. 7e-166
 
