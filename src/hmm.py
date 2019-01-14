@@ -6,7 +6,7 @@
 
 import numpy as np
 
-from grid import COLORS
+from grids import COLORS, GRIDS
 from utils import sample
 
 
@@ -218,7 +218,6 @@ def baum_welch(grid, observations, num_possible_obs, num_it):
 
 if __name__ == '__main__':
     np.set_printoptions(suppress=True)
-    from grid import GRIDS
 
     grid = GRIDS[0]
     observations, _ = get_sequence(grid, 500)

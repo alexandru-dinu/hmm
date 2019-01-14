@@ -1,6 +1,6 @@
-from grid import GRIDS
+from grids import GRIDS
 from hmm import *
-from tests import *
+from testing import *
 from utils import *
 
 # show_grids(GRIDS, COLORS)
