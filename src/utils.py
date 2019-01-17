@@ -12,6 +12,9 @@ def sample(probabilities):
         if s >= t:
             return value
     raise ValueError("Probabilities " + str(probabilities) + " do not sum to one!")
+    # vs, ps = zip(*probabilities)
+    # idx = np.random.choice(np.arange(len(vs)), p=np.array(ps))
+    # return vs[idx]
 
 
 def show_grids(grids, colors):

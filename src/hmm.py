@@ -160,11 +160,6 @@ def viterbi(grid, observations, hmm=None):
     return [(s // W, s % W) for s in states], delta
 
 
-def diff(x, y):
-    for i in range(len(x)):
-        print("%.8f vs %.8f" % (x[i], y[i]))
-
-
 def init(grid, num_possible_obs):
     N = grid.states_no
     M = num_possible_obs
@@ -199,24 +194,17 @@ def expectation(grid, observations, hmm):
     p_obs_b, beta = backward(grid, observations, hmm)
     p_obs_s = np.sum(alpha * beta, axis=1)
 
-    assert np.allclose(p_obs, p_obs_b)
-    assert np.allclose(np.repeat(p_obs, T), p_obs_s)
+    assert np.allclose(p_obs, p_obs_b, equal_nan=True)
+    assert np.allclose(np.repeat(p_obs, T), p_obs_s, equal_nan=True)
 
     # gamma_ti = (alpha_ti * beta_ti) / p(obs | theta) (size = T x N)
     gamma = alpha * beta / p_obs
 
     # xi_tij = (alpha_ti * A_ij * beta_t+1,j * B_j,t+1) / p(obs | theta) (size = T-1 x N x N)
     for t in range(T - 1):
-        for i in range(N):
-            for j in range(N):
-                xi[t, i, j] = alpha[t, i] * A[i, j] * beta[t+1, j] * B[j, observations[t+1]] / p_obs
+        xi[t, :, :] = np.tile(alpha[t, :], (N, 1)).transpose() * A * B[:, observations[t + 1]] * beta[t + 1, :] / p_obs
 
-            # xi[t, :, :] = np.tile(alpha[t, :], (N, 1)).transpose() * A * B[:, observations[t + 1]] * beta[t + 1, :] / p_obs
-
-        blah = np.tile(alpha[t, :], (N, 1)).transpose() * A * B[:, observations[t + 1]] * beta[t + 1, :] / p_obs
-        assert np.allclose(blah, xi[t])
-
-    return gamma, xi
+    return gamma, xi, np.log(p_obs)
 
 
 def maximization(grid, observations, num_possible_observations, gamma, xi, hmm):
@@ -243,18 +231,18 @@ def maximization(grid, observations, num_possible_observations, gamma, xi, hmm):
     return pi, A, B
 
 
-def baum_welch(grid, observations, num_possible_obs, num_it):
+def baum_welch(grid, samples, num_possible_obs, true_hmm):
     pi, A, B = init(grid, num_possible_obs)
+    logp = np.inf
 
-    n = np.random.randint(grid.states_no)
-    for it in range(1, num_it + 1):
-        print(f"Iter {it}")
+    for i, observations in enumerate(samples):
+        true_logp = np.log(forward(grid, observations, true_hmm)[0])
 
-        diff(B[n], get_emission_probabilities(grid)[n])
-        import time; time.sleep(0.01)
+        for _ in range(10):
+            gamma, xi, logp = expectation(grid, observations, hmm=(pi, A, B))
+            pi, A, B = maximization(grid, observations, len(COLORS), gamma, xi, hmm=(pi, A, B))
 
-        gamma, xi = expectation(grid, observations, hmm=(pi, A, B))
-        pi, A, B = maximization(grid, observations, len(COLORS), gamma, xi, hmm=(pi, A, B))
+            print("logp (%.8f) vs true_logp (%.8f) = %.8f" % (logp, true_logp, np.abs(logp - true_logp)))
 
     return pi, A, B
 
@@ -263,10 +251,16 @@ if __name__ == '__main__':
     np.set_printoptions(suppress=True)
 
     grid = GRIDS[0]
-    observations, _ = get_sequence(grid, 200)
-
-    pi, A, B = baum_welch(grid, observations, num_possible_obs=len(COLORS), num_it=1000)
+    num_samples = 10
+    samples = [None] * num_samples
+    for s in range(num_samples):
+        samples[s] = get_sequence(grid, length=np.random.randint(5, 11))[0]
 
     pi_true = get_initial_distribution(grid)
     A_true = get_transition_probabilities(grid)
     B_true = get_emission_probabilities(grid, num_possible_obs=len(COLORS))
+
+    pi, A, B = baum_welch(
+        grid, samples,
+        num_possible_obs=len(COLORS), true_hmm=(pi_true, A_true, B_true)
+    )
