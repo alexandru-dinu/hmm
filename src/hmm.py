@@ -73,7 +73,7 @@ def get_sequence(grid, length):
         states.append(state)
         observations.append(o)
 
-    return observations, states
+    return np.array(observations), states
 
 
 # ====================== Evaluation =======================
@@ -101,8 +101,10 @@ def forward(grid, observations, hmm=None):
     for t in range(1, T):
         alpha[t, :] = np.sum(alpha[t - 1, :] * np.transpose(A), axis=1) * B[:, observations[t]]
 
-    p = alpha[-1, :].sum()
-    return p, alpha
+    # p_obs = p(obs | hmm)
+    p_obs = alpha[-1, :].sum()
+
+    return p_obs, alpha
 
 
 def backward(grid, observations, hmm=None):
@@ -111,10 +113,11 @@ def backward(grid, observations, hmm=None):
     beta = np.zeros((T, N))
 
     if hmm is None:
+        pi = get_initial_distribution(grid)
         A = get_transition_probabilities(grid)
         B = get_emission_probabilities(grid, num_possible_obs=len(COLORS))
     else:
-        _, A, B = hmm
+        pi, A, B = hmm
 
     # beta_T-1,i = 1
     beta[T - 1, :] = 1
@@ -123,7 +126,10 @@ def backward(grid, observations, hmm=None):
     for t in range(T - 2, -1, -1):
         beta[t, :] = np.sum(beta[t + 1, :] * A * B[:, observations[t + 1]], axis=1)
 
-    return beta
+    # p_obs = p(obs | hmm)
+    p_obs = np.sum(pi * B[:, observations[0]] * beta[0, :])
+
+    return p_obs, beta
 
 
 # Decoding: compute the most probable sequence of states that generated the observations
@@ -154,65 +160,102 @@ def viterbi(grid, observations, hmm=None):
     return [(s // W, s % W) for s in states], delta
 
 
-def baum_welch(grid, observations, num_possible_obs, num_it):
+def diff(x, y):
+    for i in range(len(x)):
+        print("%.8f vs %.8f" % (x[i], y[i]))
+
+
+def init(grid, num_possible_obs):
     N = grid.states_no
-    T = len(observations)
     M = num_possible_obs
 
     # initial distribution
     pi = np.ones(N) / N
 
     # initial transition probabilities
+    # A = get_transition_probabilities(grid)
     A = np.zeros((N, N))
     for i in range(N):
         A[i, :] = np.random.dirichlet(np.ones(N))
-    # A = get_transition_probabilities(grid)
+        # x = np.random.random(N)
+        # A[i, :] = x / x.sum()
 
     # initial emission probabilities
+    # B = get_emission_probabilities(grid, num_possible_obs=len(COLORS))
     B = np.ones((N, M)) / M
+
+    return pi, A, B
+
+
+def expectation(grid, observations, hmm):
+    pi, A, B = hmm
+    N = grid.states_no
+    T = len(observations)
 
     xi = np.zeros((T - 1, N, N))
 
+    # p_obs = p(obs | theta)
+    p_obs, alpha = forward(grid, observations, hmm)
+    p_obs_b, beta = backward(grid, observations, hmm)
+    p_obs_s = np.sum(alpha * beta, axis=1)
+
+    assert np.allclose(p_obs, p_obs_b)
+    assert np.allclose(np.repeat(p_obs, T), p_obs_s)
+
+    # gamma_ti = (alpha_ti * beta_ti) / p(obs | theta) (size = T x N)
+    gamma = alpha * beta / p_obs
+
+    # xi_tij = (alpha_ti * A_ij * beta_t+1,j * B_j,t+1) / p(obs | theta) (size = T-1 x N x N)
+    for t in range(T - 1):
+        for i in range(N):
+            for j in range(N):
+                xi[t, i, j] = alpha[t, i] * A[i, j] * beta[t+1, j] * B[j, observations[t+1]] / p_obs
+
+            # xi[t, :, :] = np.tile(alpha[t, :], (N, 1)).transpose() * A * B[:, observations[t + 1]] * beta[t + 1, :] / p_obs
+
+        blah = np.tile(alpha[t, :], (N, 1)).transpose() * A * B[:, observations[t + 1]] * beta[t + 1, :] / p_obs
+        assert np.allclose(blah, xi[t])
+
+    return gamma, xi
+
+
+def maximization(grid, observations, num_possible_observations, gamma, xi, hmm):
+    pi, A, B = hmm
+    N = grid.states_no
+    M = num_possible_observations
+
+    # update pi
+    pi = gamma[0, :]
+
+    # # gamma_ti = sum_j(xi_tij)
+    # assert np.allclose(gamma[:-1, :], np.sum(xi, axis=2))
+
+    # update: A <- sum_t(xi_tij) / sum_t(gamma_ti) | all t's but last one
+    for i in range(N):
+        for j in range(N):
+            A[i, j] = np.sum(xi[:-1, i, j]) / np.sum(gamma[:-1, i])
+
+    # update: B <- sum_t(1(y_t==k) * gamma_ti) / sum_t(gamma_ti)
+    for i in range(N):
+        for k in range(M):
+            B[i, k] = np.sum(gamma[np.where((observations == k)), i]) / np.sum(gamma[:, i])
+
+    return pi, A, B
+
+
+def baum_welch(grid, observations, num_possible_obs, num_it):
+    pi, A, B = init(grid, num_possible_obs)
+
+    n = np.random.randint(grid.states_no)
     for it in range(1, num_it + 1):
         print(f"Iter {it}")
 
-        # print("\n\n", A[1], "\n", get_transition_probabilities(grid)[1], "\n")
-        # import time
-        # time.sleep(0.1)
+        diff(B[n], get_emission_probabilities(grid)[n])
+        import time; time.sleep(0.01)
 
-        # E step
+        gamma, xi = expectation(grid, observations, hmm=(pi, A, B))
+        pi, A, B = maximization(grid, observations, len(COLORS), gamma, xi, hmm=(pi, A, B))
 
-        # p_obs = p(obs | theta)
-        p_obs, alpha = forward(grid, observations, hmm=(pi, A, B))
-        beta = backward(grid, observations, hmm=(None, A, B))
-
-        # p_obs gets too small!! e.g. 7e-166
-
-        # gamma_ti = (alpha_ti * beta_ti) / p(obs | theta) (size = T x N)
-        gamma = alpha * beta / p_obs
-
-        # xi_tij = (alpha_ti * A_ij * beta_t+1,j * B_j,t+1) / p(obs | theta) (size = T-1 x N x N)
-        for t in range(T - 1):
-            xi[t, :, :] = np.tile(alpha[t, :], (N, 1)).transpose() * A * B[:, observations[t + 1]] * beta[t + 1, :]
-        xi /= p_obs
-        # ---
-
-        # M step
-        # update pi
-        pi = gamma[0, :]
-
-        # update: A <- sum_t(xi_tij) / sum_t(gamma_ti) | all t's but last one
-        for i in range(N):
-            for j in range(N):
-                A[i, j] = np.sum(xi[:, i, j]) / np.sum(gamma[:-1, i])
-
-        # update: B <- sum_t(1(y_t==k) * gamma_ti) / sum_t(gamma_ti)
-        for i in range(N):
-            for k in range(M):
-                B[i, k] = np.sum((observations == k) * gamma[:, i]) / np.sum(gamma[:, i])
-        # ---
-
-    print("Done!")
     return pi, A, B
 
 
@@ -220,9 +263,9 @@ if __name__ == '__main__':
     np.set_printoptions(suppress=True)
 
     grid = GRIDS[0]
-    observations, _ = get_sequence(grid, 500)
+    observations, _ = get_sequence(grid, 200)
 
-    pi, A, B = baum_welch(grid, np.array(observations), num_possible_obs=len(COLORS), num_it=1000)
+    pi, A, B = baum_welch(grid, observations, num_possible_obs=len(COLORS), num_it=1000)
 
     pi_true = get_initial_distribution(grid)
     A_true = get_transition_probabilities(grid)
