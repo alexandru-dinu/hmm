@@ -4,10 +4,13 @@
 # skel by Tudor Berariu (tudor.berariu@gmail.com), 2018
 
 
+import sys
+
 import numpy as np
 
 from grids import COLORS, GRIDS
 from utils import sample
+import matplotlib.pyplot as plt
 
 
 # The problem: *The Climber Robot*
@@ -171,9 +174,8 @@ def init(grid, num_possible_obs):
     # A = get_transition_probabilities(grid)
     A = np.zeros((N, N))
     for i in range(N):
-        A[i, :] = np.random.dirichlet(np.ones(N))
-        # x = np.random.random(N)
-        # A[i, :] = x / x.sum()
+        x = np.random.random(N)
+        A[i, :] = x / x.sum()
 
     # initial emission probabilities
     # B = get_emission_probabilities(grid, num_possible_obs=len(COLORS))
@@ -184,97 +186,41 @@ def init(grid, num_possible_obs):
 
 def expectation(grid, samples, hmm):
     pi, A, B = hmm
+    L = len(samples)
     N = grid.states_no
-    T = len(observations)
 
-    xi = np.zeros((T - 1, N, N))
+    logp = 0
+    gammas, xis = [], []
 
-    # p_obs = p(obs | theta)
-    p_obs, alpha = forward(grid, observations, hmm)
-    p_obs_b, beta = backward(grid, observations, hmm)
-    p_obs_s = np.sum(alpha * beta, axis=1)
+    for l in range(L):
+        p, alpha = forward(grid, samples[l], hmm=(pi, A, B))
+        _, beta = backward(grid, samples[l], hmm=(pi, A, B))
 
-    assert np.allclose(p_obs, p_obs_b, equal_nan=True)
-    assert np.allclose(np.repeat(p_obs, T), p_obs_s, equal_nan=True)
+        T = len(samples[l])
 
-    # gamma_ti = (alpha_ti * beta_ti) / p(obs | theta) (size = T x N)
-    gamma = alpha * beta / p_obs
+        xi = np.zeros((T - 1, N, N))
+        for t in range(T - 1):
+            xi[t, :, :] = np.tile(alpha[t, :], (N, 1)).transpose() * A * B[:, samples[l][t + 1]] * beta[t + 1, :]
 
-    # xi_tij = (alpha_ti * A_ij * beta_t+1,j * B_j,t+1) / p(obs | theta) (size = T-1 x N x N)
-    for t in range(T - 1):
-        xi[t, :, :] = np.tile(alpha[t, :], (N, 1)).transpose() * A * B[:, observations[t + 1]] * beta[t + 1, :] / p_obs
+        xis += [xi / p]
+        gammas += [alpha * beta / p]
 
-    return gamma, xi, np.log(p_obs)
+        logp += np.log(p)
 
-
-def maximization(grid, samples, num_possible_observations, gamma, xi, hmm):
-    pi, A, B = hmm
-    N = grid.states_no
-    M = num_possible_observations
-
-    # update pi
-    pi = gamma[0, :]
-
-    # # gamma_ti = sum_j(xi_tij)
-    assert np.allclose(gamma[:-1, :], np.sum(xi, axis=2), equal_nan=True)
-
-    # update: A <- sum_t(xi_tij) / sum_t(gamma_ti) | all t's but last one
-    for i in range(N):
-        for j in range(N):
-            A[i, j] = np.sum(xi[:-1, i, j]) / np.sum(gamma[:-1, i])
-
-    # update: B <- sum_t(1(y_t==k) * gamma_ti) / sum_t(gamma_ti)
-    for i in range(N):
-        for k in range(M):
-            B[i, k] = np.sum((observations == k) * gamma[:, i]) / np.sum(gamma[:, i])
-
-    return pi, A, B
+    return gammas, xis, logp / L
 
 
-def baum_welch(grid, samples, num_possible_obs):
-
-    pi, A, B = init(grid, num_possible_obs)
-
-    _, _, old_logp = expectation(grid, samples, hmm=(pi, A, B))
-
-    for j in range(100):
-        pi, A, B = maximization(grid, samples, len(COLORS), gamma, xi, hmm=(pi, A, B))
-        gamma, xi, logp = expectation(grid, samples, hmm=(pi, A, B))
-
-        diff = np.abs(logp, old_logp)
-        print("diff = %.8f" % diff)
-
-        return pi, A, B
-
-
-
-# -----
-def maximiz(grid, samples, alphas, betas, ps, hmm):
+def maximization(grid, samples, gammas, xis, hmm):
     pi, A, B = hmm
 
     N = grid.states_no
     L = len(samples)
     M = len(COLORS)
 
-    gammas, xis = [], []
-    for l in range(L):
-        T = len(samples[l])
-
-        xi = np.zeros((T-1, N, N))
-        for t in range(T - 1):
-            xi[t, :, :] = np.tile(alphas[l][t, :], (N, 1)).transpose() * A * B[:, samples[l][t + 1]] * betas[l][t + 1, :]
-
-        xis.append(xi / ps[l])
-        gammas.append(alphas[l] * betas[l] / ps[l])
-
     # update pi
     pi = np.zeros(N)
     for i in range(N):
-        x, y = 0, 0
-        for l in range(L):
-            x += gammas[l][0, i]
-            y += np.sum(gammas[l][0, :])
-        pi[i] = x / y
+        pi[i] = np.sum([gammas[l][0, i] for l in range(L)]) / L
 
     # update A
     A = np.zeros((N, N))
@@ -302,70 +248,56 @@ def maximiz(grid, samples, alphas, betas, ps, hmm):
     return pi, A, B
 
 
+def baum_welch(grid, samples):
+    pi, A, B = init(grid, len(COLORS))
+    # pi = get_initial_distribution(grid)
+    # A = get_transition_probabilities(grid)
+    # B = get_emission_probabilities(grid)
 
+    gammas, xis, logp = expectation(grid, samples, hmm=(pi, A, B))
 
-def bw(grid, samples):
-    # pi, A, B = init(grid, len(COLORS))
-    pi = get_initial_distribution(grid)
-    A = get_transition_probabilities(grid)
-    B = get_emission_probabilities(grid)
-
-    old_logp = 0
-
-    alphas, betas, ps = [], [], []
-    for l in range(len(samples)):
-        p, a = forward(grid, samples[l], hmm=(pi, A, B))
-        _, b = backward(grid, samples[l], hmm=(pi, A, B))
-
-        ps += [p]
-        alphas += [a]
-        betas += [b]
-    logp = np.mean(np.log(ps))
+    logps = [0, logp]
 
     it = 0
-    while True: #np.abs(logp - old_logp) > 1e-5:
+    while True:
         it += 1
-        print("Iter [%5d], logp = %.8f, old_logp = %.8f, diff = [%.8f]" %
-        (it, logp, old_logp, logp - old_logp))
 
-        old_logp = logp
+        print("Iter [%5d], logp = %.8f, old_logp = %.8f, diff = [%.8f]" % (it, logps[-1], logps[-2], logps[-1] - logps[-2]))
 
-        pi, A, B = maximiz(grid, samples, alphas, betas, ps, hmm=(pi, A, B))
+        if it % 100 == 0:
+            plt.plot(np.arange(it), logps[1:], color='b', lw=0.5)
+            plt.show()
 
-        alphas, betas, ps = [], [], []
-        for l in range(len(samples)):
-            p, a = forward(grid, samples[l], hmm=(pi, A, B))
-            _, b = backward(grid, samples[l], hmm=(pi, A, B))
+        pi, A, B = maximization(grid, samples, gammas, xis, hmm=(pi, A, B))
+        gammas, xis, logp = expectation(grid, samples, hmm=(pi, A, B))
 
-            ps += [p]
-            alphas += [a]
-            betas += [b]
-
-        logp = np.mean(np.log(ps))
+        logps += [logp]
 
     return pi, A, B
+
+
 # ---
 
 
-
-if __name__ == '__main__':
+def main(args):
     np.set_printoptions(suppress=True)
-    import sys
 
-    grid = GRIDS[1]
+    grid = GRIDS[int(args[0])]
 
     pi_true = get_initial_distribution(grid)
     A_true = get_transition_probabilities(grid)
-    B_true = get_emission_probabilities(grid, num_possible_obs=len(COLORS))
+    B_true = get_emission_probabilities(grid)
 
-    num_samples = int(sys.argv[1])
-    samples = [None] * num_samples
+    num_samples = int(args[1])
+    samples = []
 
     for s in range(num_samples):
         length = np.random.randint(5, 11)
         obs, _ = get_sequence(grid, length)
-        # p, _ = forward(grid, obs, hmm=(pi_true, A_true, B_true))
-        samples[s] = obs
+        samples += [obs]
 
-    # pi, A, B = baum_welch(grid, samples, num_possible_obs=len(COLORS))
-    pi, A, B = bw(grid, samples)
+    pi, A, B = baum_welch(grid, samples)
+
+
+if __name__ == '__main__':
+    main(sys.argv[1:])
