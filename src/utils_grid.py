@@ -19,16 +19,16 @@ def show_grids(grids):
 
 def show_sequence(grids):
     print(colored("Example of a random sequence from a random model", "cyan"))
-    
+
     grid = np.random.choice(grids)
     T = np.random.randint(2, 6)
     observations, states = grid.get_sequence(T)
-    
+
     print("Agent wandered on map \033[1m" + grid.name + "\033[0m")
     print("... going thorugh states", states)
     print("... observing", ", ".join([Grid.COLORS[o] for o in observations]))
     print("\n")
-    
+
     cm = LinearSegmentedColormap.from_list("cm", Grid.COLORS)
     ax = sns.heatmap(grid.color, annot=grid.elevation, cmap=cm, square=True, cbar=False, annot_kws={"size": 20})
     ax.set_title(grid.name)
@@ -52,7 +52,7 @@ def show_transition_prob(grids):
 def show_emission_prob(grids):
     _g_no = len(grids)
     fig, axs = plt.subplots(1, _g_no, figsize=(_g_no * 4, 6), sharey="row")
-    
+
     for grid, ax in zip(grids, axs):
         N = grid.states_no
         B = grid.get_hmm().B
@@ -67,22 +67,22 @@ def show_viterbi(grids):
     H, W = grid.shape
     T = np.random.randint(3, 6)
     observations, states = grid.get_sequence(T)
-    decoded, _ = viterbi(grid.states_no, observations, grid.get_hmm())
-    decoded = [(s // W, s % W) for s in decoded]
-    
+    decoded, _ = viterbi(observations, grid.get_hmm())
+    decoded = [(s // H, s % W) for s in decoded]
+
     print(colored("Viterbi algorithm", "cyan"))
     print("Agent wandered on map \033[1m" + grid.name + "\033[0m")
     print("... going thorugh states", states)
     print("... observing", ", ".join([Grid.COLORS[o] for o in observations]))
     print("\nThe decoded sequence of states is", decoded)
-    
+
     fig, axs = plt.subplots(1, 2, figsize=(10, 4), sharey="row")
     cm = LinearSegmentedColormap.from_list("cm", Grid.COLORS)
     sns.heatmap(grid.color, annot=grid.elevation, cmap=cm, square=True, cbar=False, annot_kws={"size": 20}, ax=axs[0])
     sns.heatmap(grid.color, annot=grid.elevation, cmap=cm, square=True, cbar=False, annot_kws={"size": 20}, ax=axs[1])
     axs[0].set_title(grid.name + " - original path")
     axs[1].set_title(grid.name + " - decoded path")
-    
+
     for t in range(T - 1):
         (y0, x0), (y1, x1) = states[t], states[t + 1]
         y0, x0, y1, x1 = y0 + .5, x0 + .5, y1 + .5, x1 + .5
