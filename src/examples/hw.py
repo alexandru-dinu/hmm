@@ -1,5 +1,5 @@
-from hmm import HMM, forward, backward, viterbi
-import numpy as np
+from common import *
+
 
 hmm = HMM(
     pi=np.array([0.5, 0.5]),
