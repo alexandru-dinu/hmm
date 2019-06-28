@@ -1,6 +1,8 @@
-from typing import Tuple, List
+from typing import List, Tuple
 
+import graphviz
 import matplotlib.pyplot as plt
+import networkx as nx
 import numpy as np
 
 from utils import sample_from
@@ -21,8 +23,7 @@ class HMM:
         - the emission matrix - B[i,k] = p(Ot = k | St = i) :: N x M
     """
 
-
-    def __init__(self, pi: np.ndarray, A: np.ndarray, B: np.ndarray):
+    def __init__(self, pi: np.ndarray, A: np.ndarray, B: np.ndarray, **kwargs):
         assert len(pi) == A.shape[0] == A.shape[1] == B.shape[0]
 
         self.pi = pi
@@ -31,18 +32,16 @@ class HMM:
         self.N = self.A.shape[0]
         self.M = self.B.shape[1]
 
+        self.kwargs = kwargs
 
     def sample_initial(self) -> float:
         return sample_from([(s, self.pi[s]) for s in range(self.N)])
 
-
     def sample_transition(self, from_state: int) -> int:
         return sample_from([(s, self.A[from_state, s]) for s in range(self.N)])
 
-
     def sample_observation(self, state: int) -> int:
         return sample_from([(o, self.B[state, o]) for o in range(self.M)])
-
 
     def sample_sequence(self, length: int) -> np.ndarray:
         seq = []
@@ -53,6 +52,38 @@ class HMM:
             seq += [self.sample_observation(state=s)]
 
         return np.array(seq)
+
+    def visualize(self):
+        G = nx.MultiDiGraph()
+
+        sn = lambda i: f'S{i}'
+        on = lambda i: f'O{i}'
+
+        if 'state_names' in self.kwargs:
+            sn = lambda i: self.kwargs['state_names'][i]
+
+        if 'obs_names' in self.kwargs:
+            on = lambda i: self.kwargs['obs_names'][i]
+
+        G.add_nodes_from([(sn(i), {'color': 'black'}) for i in range(self.N)])
+        G.add_nodes_from([(on(i), {'color': 'black'}) for i in range(self.M)])
+
+        # transitions
+        for i in range(self.N):
+            for j in range(self.N):
+                G.add_edge(sn(i), sn(j), label=round(self.A[i, j], 3), color='blue')
+
+        # observations
+        for i in range(self.N):
+            for o in range(self.M):
+                G.add_edge(sn(i), on(o), label=round(self.B[i, o], 3), color='cyan')
+
+        pos = nx.drawing.nx_pydot.graphviz_layout(G, prog='dot')
+        nx.draw_networkx(G, pos)
+        nx.drawing.nx_pydot.write_dot(G, 'hmm.dot')
+
+        s = graphviz.Source.from_file('hmm.dot')
+        s.view()
 
 
 # Compute the probability that a given sequence comes from a given model

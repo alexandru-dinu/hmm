@@ -1,16 +1,19 @@
 from common import *
 
-
 hmm = HMM(
     pi=np.array([0.8, 0.2]),
     A=np.array([[0.9, 0.1], [0.1, 0.9]]),
     B=np.array(np.array([
-        [1/6, 1/6, 1/6, 1/6, 1/6, 1/6],
-        [1/10, 1/10, 1/10, 1/10, 1/10, 1/2]
-    ]))
+        [1 / 6, 1 / 6, 1 / 6, 1 / 6, 1 / 6, 1 / 6],
+        [1 / 10, 1 / 10, 1 / 10, 1 / 10, 1 / 10, 1 / 2]
+    ])),
+    state_names=['fair', 'loaded'],
+    obs_names=['1', '2', '3', '4', '5', '6']
 )
 
-obs = np.array([1, 4, 3, 6, 6, 4]) - 1 # -1 because the sides are indices
+hmm.visualize()
+
+obs = np.array([1, 4, 3, 6, 6, 4]) - 1  # -1 because the sides are indices
 
 p, alpha = forward(obs, hmm)
 q, beta = backward(obs, hmm)

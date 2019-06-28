@@ -1,6 +1,5 @@
 from common import *
 
-
 hmm = HMM(
     pi=np.array([0.5, 0.5]),
     A=np.array([[0.75, 0.25], [0.25, 0.75]]),
