@@ -1,9 +1,16 @@
-from common import *
+import os
+import sys
+
+import numpy as np
+
+sys.path.insert(0, '../src')
+from hmm import HMM, forward, backward, viterbi
+
 
 hmm = HMM(
-    pi=np.array([0.5, 0.5]),
-    A=np.array([[0.75, 0.25], [0.25, 0.75]]),
-    B=np.array(np.array([[0.45, 0.05, 0.45, 0.05], [0.05, 0.45, 0.05, 0.45]]))
+        pi=np.array([0.5, 0.5]),
+        A=np.array([[0.75, 0.25], [0.25, 0.75]]),
+        B=np.array(np.array([[0.45, 0.05, 0.45, 0.05], [0.05, 0.45, 0.05, 0.45]]))
 )
 
 obs = np.array([0, 1, 3, 2])
