@@ -48,7 +48,11 @@ class HMM:
         s = None
 
         for i in range(length):
-            s = self.sample_initial() if i == 0 else self.sample_transition(from_state=s)
+            s = (
+                self.sample_initial()
+                if i == 0
+                else self.sample_transition(from_state=s)
+            )
             seq += [self.sample_observation(state=s)]
 
         return np.array(seq)
@@ -56,33 +60,33 @@ class HMM:
     def visualize(self):
         G = nx.MultiDiGraph()
 
-        sn = lambda i: f'S{i}'
-        on = lambda i: f'O{i}'
+        sn = lambda i: f"S{i}"
+        on = lambda i: f"O{i}"
 
-        if 'state_names' in self.kwargs:
-            sn = lambda i: self.kwargs['state_names'][i]
+        if "state_names" in self.kwargs:
+            sn = lambda i: self.kwargs["state_names"][i]
 
-        if 'obs_names' in self.kwargs:
-            on = lambda i: self.kwargs['obs_names'][i]
+        if "obs_names" in self.kwargs:
+            on = lambda i: self.kwargs["obs_names"][i]
 
-        G.add_nodes_from([(sn(i), {'color': 'black'}) for i in range(self.N)])
-        G.add_nodes_from([(on(i), {'color': 'black'}) for i in range(self.M)])
+        G.add_nodes_from([(sn(i), {"color": "black"}) for i in range(self.N)])
+        G.add_nodes_from([(on(i), {"color": "black"}) for i in range(self.M)])
 
         # transitions
         for i in range(self.N):
             for j in range(self.N):
-                G.add_edge(sn(i), sn(j), label=round(self.A[i, j], 3), color='blue')
+                G.add_edge(sn(i), sn(j), label=round(self.A[i, j], 3), color="blue")
 
         # observations
         for i in range(self.N):
             for o in range(self.M):
-                G.add_edge(sn(i), on(o), label=round(self.B[i, o], 3), color='cyan')
+                G.add_edge(sn(i), on(o), label=round(self.B[i, o], 3), color="cyan")
 
-        pos = nx.drawing.nx_pydot.graphviz_layout(G, prog='dot')
+        pos = nx.drawing.nx_pydot.graphviz_layout(G, prog="dot")
         nx.draw_networkx(G, pos)
-        nx.drawing.nx_pydot.write_dot(G, 'hmm.dot')
+        nx.drawing.nx_pydot.write_dot(G, "hmm.dot")
 
-        s = graphviz.Source.from_file('hmm.dot')
+        s = graphviz.Source.from_file("hmm.dot")
         s.view()
 
 
@@ -96,7 +100,10 @@ def forward(observations: np.ndarray, hmm: HMM) -> Tuple[float, np.ndarray]:
 
     # alpha_ti = sum_j(alpha_t-1,j * Aji) * B_it
     for t in range(1, T):
-        alpha[t, :] = np.sum(alpha[t - 1, :] * np.transpose(hmm.A), axis=1) * hmm.B[:, observations[t]]
+        alpha[t, :] = (
+            np.sum(alpha[t - 1, :] * np.transpose(hmm.A), axis=1)
+            * hmm.B[:, observations[t]]
+        )
 
     # p_obs = p(obs | hmm)
     p_obs = alpha[-1, :].sum()
@@ -113,7 +120,9 @@ def backward(observations: np.ndarray, hmm: HMM) -> Tuple[float, np.ndarray]:
 
     # beta_ti = sum_j(beta_t+1,j * A_ij * B_j,t+1)
     for t in range(T - 2, -1, -1):
-        beta[t, :] = np.sum(beta[t + 1, :] * hmm.A * hmm.B[:, observations[t + 1]], axis=1)
+        beta[t, :] = np.sum(
+            beta[t + 1, :] * hmm.A * hmm.B[:, observations[t + 1]], axis=1
+        )
 
     # p_obs = p(obs | hmm)
     p_obs = np.sum(hmm.pi * hmm.B[:, observations[0]] * beta[0, :])
@@ -131,7 +140,10 @@ def viterbi(observations: np.ndarray, hmm: HMM) -> Tuple[np.ndarray, np.ndarray]
     delta[0, :] = hmm.pi * hmm.B[:, observations[0]]
 
     for t in range(1, T):
-        delta[t, :] = np.max(delta[t - 1, :] * np.transpose(hmm.A), axis=1) * hmm.B[:, observations[t]]
+        delta[t, :] = (
+            np.max(delta[t - 1, :] * np.transpose(hmm.A), axis=1)
+            * hmm.B[:, observations[t]]
+        )
 
     states[-1] = np.argmax(delta[-1, :])
     for t in range(T - 2, -1, -1):
@@ -141,6 +153,7 @@ def viterbi(observations: np.ndarray, hmm: HMM) -> Tuple[np.ndarray, np.ndarray]
 
 
 # Learning
+
 
 def initialize_hmm(N: int, M: int) -> HMM:
     # uniform initial distribution
@@ -160,7 +173,10 @@ def initialize_hmm(N: int, M: int) -> HMM:
 
 # Expectation-Maximization
 
-def expectation(samples: List[np.ndarray], hmm: HMM) -> Tuple[List[np.ndarray], List[np.ndarray], float]:
+
+def expectation(
+    samples: List[np.ndarray], hmm: HMM
+) -> Tuple[List[np.ndarray], List[np.ndarray], float]:
     N = hmm.N
     L = len(samples)
 
@@ -175,7 +191,12 @@ def expectation(samples: List[np.ndarray], hmm: HMM) -> Tuple[List[np.ndarray], 
 
         xi = np.zeros((T - 1, N, N))
         for t in range(T - 1):
-            xi[t, :, :] = np.tile(alpha[t, :], (N, 1)).transpose() * hmm.A * hmm.B[:, samples[l][t + 1]] * beta[t + 1, :]
+            xi[t, :, :] = (
+                np.tile(alpha[t, :], (N, 1)).transpose()
+                * hmm.A
+                * hmm.B[:, samples[l][t + 1]]
+                * beta[t + 1, :]
+            )
 
         xis += [xi / p]
         gammas += [alpha * beta / p]
@@ -185,7 +206,9 @@ def expectation(samples: List[np.ndarray], hmm: HMM) -> Tuple[List[np.ndarray], 
     return gammas, xis, logp / L
 
 
-def maximization(samples: List[np.ndarray], gammas: List[np.ndarray], xis: List[np.ndarray], hmm: HMM) -> HMM:
+def maximization(
+    samples: List[np.ndarray], gammas: List[np.ndarray], xis: List[np.ndarray], hmm: HMM
+) -> HMM:
     N, M = hmm.N, hmm.M
     L = len(samples)
 
@@ -231,10 +254,13 @@ def baum_welch(N, M, samples, num_it=None, plot=True) -> HMM:
 
     while it < num_it:
 
-        print("Iter [%5d], logp = %.8f, old_logp = %.8f, diff = [%.8f]" % (it + 1, logps[-1], logps[-2], logps[-1] - logps[-2]))
+        print(
+            "Iter [%5d], logp = %.8f, old_logp = %.8f, diff = [%.8f]"
+            % (it + 1, logps[-1], logps[-2], logps[-1] - logps[-2])
+        )
 
         if plot and (it + 1) % 100 == 0:
-            plt.plot(np.arange(it + 1), logps[1:], color='b', lw=1.0)
+            plt.plot(np.arange(it + 1), logps[1:], color="b", lw=1.0)
             plt.show()
 
         hmm = maximization(samples, gammas, xis, hmm)

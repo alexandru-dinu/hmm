@@ -31,7 +31,9 @@ def learn_simple(args: argparse.Namespace) -> HMM:
         obs = true_hmm.sample_sequence(length=10)
         samples += [obs]
 
-    hmm = baum_welch(true_hmm.N, true_hmm.M, samples, num_it=args.num_it, plot=args.plot)
+    hmm = baum_welch(
+        true_hmm.N, true_hmm.M, samples, num_it=args.num_it, plot=args.plot
+    )
 
     diff(true_hmm, hmm)
 
@@ -56,19 +58,23 @@ def diff(true_hmm: HMM, learned_hmm: HMM) -> None:
 
 
 def main(args: argparse.Namespace) -> None:
-    models = {
-        "grid"  : learning_grid,
-        "simple": learn_simple
-    }
+    models = {"grid": learning_grid, "simple": learn_simple}
 
     models[args.model](args)
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     parser = argparse.ArgumentParser()
-    parser.add_argument("--model", type=str, required=True, help="model to learn (grid/simple)")
+    parser.add_argument(
+        "--model", type=str, required=True, help="model to learn (grid/simple)"
+    )
     parser.add_argument("--idx", type=int, required=True, help="model index")
-    parser.add_argument("--num_samples", type=int, required=True, help="number of samples (i.e. sequences)")
+    parser.add_argument(
+        "--num_samples",
+        type=int,
+        required=True,
+        help="number of samples (i.e. sequences)",
+    )
     parser.add_argument("--num_it", type=int, help="number of iterations")
     parser.add_argument("--plot", action="store_true")
 
